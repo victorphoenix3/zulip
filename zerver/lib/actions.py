@@ -1005,6 +1005,7 @@ RecipientInfoResult = TypedDict('RecipientInfoResult', {
     'stream_email_user_ids': Set[int],
     'stream_push_user_ids': Set[int],
     'wildcard_mention_user_ids': Set[int],
+    'alert_word_user_ids': Set[int],
     'um_eligible_user_ids': Set[int],
     'long_term_idle_user_ids': Set[int],
     'default_bot_user_ids': Set[int],
@@ -1019,6 +1020,7 @@ def get_recipient_info(recipient: Recipient,
     stream_push_user_ids = set()  # type: Set[int]
     stream_email_user_ids = set()  # type: Set[int]
     wildcard_mention_user_ids = set()  # type: Set[int]
+    alert_word_user_ids = set() # type: Set[int]
 
     if recipient.type == Recipient.PERSONAL:
         # The sender and recipient may be the same id, so
@@ -1038,11 +1040,13 @@ def get_recipient_info(recipient: Recipient,
             user_profile_push_notifications=F('user_profile__enable_stream_push_notifications'),
             user_profile_wildcard_mentions_notify=F(
                 'user_profile__wildcard_mentions_notify'),
+            user_profile_alert_word_notify=F('user_profile__alert_word_notify'),
         ).values(
             'user_profile_id',
             'push_notifications',
             'email_notifications',
             'wildcard_mentions_notify',
+            'alert_word_notify',
             'user_profile_email_notifications',
             'user_profile_push_notifications',
             'user_profile_wildcard_mentions_notify',
@@ -1078,6 +1082,12 @@ def get_recipient_info(recipient: Recipient,
             for row in subscription_rows
             # Note: muting a stream overrides stream_email_notify
             if should_send('email_notifications', row)
+        }
+
+        alert_word_user_ids = {
+            row['user_profile_id']
+            for row in subscription_rows
+            if should_send('alert_word_notifications',row)
         }
 
         if possible_wildcard_mention:
@@ -1196,6 +1206,7 @@ def get_recipient_info(recipient: Recipient,
         stream_push_user_ids=stream_push_user_ids,
         stream_email_user_ids=stream_email_user_ids,
         wildcard_mention_user_ids=wildcard_mention_user_ids,
+        alert_word_user_ids=alert_word_user_ids,
         um_eligible_user_ids=um_eligible_user_ids,
         long_term_idle_user_ids=long_term_idle_user_ids,
         default_bot_user_ids=default_bot_user_ids,
@@ -1385,6 +1396,8 @@ def do_send_messages(messages_maybe_none: Sequence[Optional[MutableMapping[str, 
         else:
             message['wildcard_mention_user_ids'] = []
 
+        message['alert_word_user_ids'] = info['alert_word_user_ids']
+
         '''
         Once we have the actual list of mentioned ids from message
         rendering, we can patch in "default bots" (aka normal bots)
@@ -1487,6 +1500,7 @@ def do_send_messages(messages_maybe_none: Sequence[Optional[MutableMapping[str, 
                 stream_push_notify=(user_id in message['stream_push_user_ids']),
                 stream_email_notify=(user_id in message['stream_email_user_ids']),
                 wildcard_mention_notify=(user_id in message['wildcard_mention_user_ids']),
+                alert_word_notify=(user_id in message['alert_word_user_ids']),
             )
             for user_id in user_ids
         ]
@@ -4528,6 +4542,7 @@ def do_update_message(user_profile: UserProfile, message: Message, topic_name: O
         event['prior_mention_user_ids'] = list(prior_mention_user_ids)
         event['mention_user_ids'] = list(mention_user_ids)
         event['presence_idle_user_ids'] = filter_presence_idle_user_ids(info['active_user_ids'])
+        event['alert_word_user_ids'] = list(info['alert_word_user_ids'])
         if message.mentions_wildcard:
             event['wildcard_mention_user_ids'] = list(info['wildcard_mention_user_ids'])
         else:
